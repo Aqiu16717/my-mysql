@@ -447,6 +447,7 @@ void LEX::reset() {
   part_info = nullptr;
   duplicates = DUP_ERROR;
   ignore = false;
+  m_transactional_ddl = false;
   spname = nullptr;
   sphead = nullptr;
   set_sp_current_parsing_ctx(nullptr);

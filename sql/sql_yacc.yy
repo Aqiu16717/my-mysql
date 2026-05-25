@@ -1622,6 +1622,7 @@ CHARSET_INFO *warn_on_deprecated_user_defined_collation(
 %type <num> opt_start_transaction_option_list
 %type <num> start_transaction_option_list
 %type <num> start_transaction_option
+%type <num> opt_start_transaction_clause
 
 %type <m_yes_no_unk>
         opt_chain opt_release
@@ -3530,8 +3531,9 @@ default_role_clause:
 create_index_stmt:
           CREATE opt_unique INDEX_SYM ident opt_index_type_clause
           ON_SYM table_ident '(' key_list_with_expression ')' opt_index_options
-          opt_index_lock_and_algorithm
+          opt_index_lock_and_algorithm opt_start_transaction_clause
           {
+            Lex->m_transactional_ddl= $13;
             $$= NEW_PTN PT_create_index_stmt(@$, YYMEM_ROOT, $2, $4, $5,
                                              $7, $9, $11,
                                              $12.algo.get_or_default(),
@@ -3539,7 +3541,9 @@ create_index_stmt:
           }
         | CREATE FULLTEXT_SYM INDEX_SYM ident ON_SYM table_ident
           '(' key_list_with_expression ')' opt_fulltext_index_options opt_index_lock_and_algorithm
+          opt_start_transaction_clause
           {
+            Lex->m_transactional_ddl= $12;
             $$= NEW_PTN PT_create_index_stmt(@$, YYMEM_ROOT, KEYTYPE_FULLTEXT, $4,
                                              nullptr, $6, $8, $10,
                                              $11.algo.get_or_default(),
@@ -3547,7 +3551,9 @@ create_index_stmt:
           }
         | CREATE SPATIAL_SYM INDEX_SYM ident ON_SYM table_ident
           '(' key_list_with_expression ')' opt_spatial_index_options opt_index_lock_and_algorithm
+          opt_start_transaction_clause
           {
+            Lex->m_transactional_ddl= $12;
             $$= NEW_PTN PT_create_index_stmt(@$, YYMEM_ROOT, KEYTYPE_SPATIAL, $4,
                                              nullptr, $6, $8, $10,
                                              $11.algo.get_or_default(),
@@ -9469,6 +9475,17 @@ opt_start_transaction_option_list:
           }
         ;
 
+opt_start_transaction_clause:
+          %empty
+          {
+            $$= 0;
+          }
+        | START_SYM TRANSACTION_SYM
+          {
+            $$= 1;
+          }
+        ;
+
 start_transaction_option_list:
           start_transaction_option
           {
@@ -13229,12 +13246,14 @@ do_stmt:
 
 drop_table_stmt:
           DROP opt_temporary table_or_tables if_exists table_list opt_restrict
+          opt_start_transaction_clause
           {
             // Note: opt_restrict ($6) is ignored!
             LEX *lex=Lex;
             lex->sql_command = SQLCOM_DROP_TABLE;
             lex->drop_temporary= $2;
             lex->drop_if_exists= $4;
+            lex->m_transactional_ddl= $7;
             YYPS->m_lock_type= TL_UNLOCK;
             YYPS->m_mdl_type= MDL_EXCLUSIVE;
             if (Select->add_tables(YYTHD, $5, TL_OPTION_UPDATING,
@@ -13249,7 +13268,9 @@ drop_table_stmt:
 
 drop_index_stmt:
           DROP INDEX_SYM ident ON_SYM table_ident opt_index_lock_and_algorithm
+          opt_start_transaction_clause
           {
+            Lex->m_transactional_ddl= $7;
             $$= NEW_PTN PT_drop_index_stmt(@$, YYMEM_ROOT, $3.str, $5,
                                            $6.algo.get_or_default(),
                                            $6.lock.get_or_default());
@@ -13999,8 +14020,9 @@ opt_delete_option:
         ;
 
 truncate_stmt:
-          TRUNCATE_SYM opt_table table_ident
+          TRUNCATE_SYM opt_table table_ident opt_start_transaction_clause
           {
+            Lex->m_transactional_ddl= $4;
             $$= NEW_PTN PT_truncate_table_stmt(@$, $3);
           }
         ;

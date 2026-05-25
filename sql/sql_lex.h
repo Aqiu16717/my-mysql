@@ -4401,6 +4401,7 @@ struct LEX : public Query_tables_list {
   */
   bool ignore_unknown_user;
   bool drop_temporary;
+  bool m_transactional_ddl{false};
   bool autocommit;
   bool verbose, no_write_to_binlog;
   // For show commands to show hidden columns and indexes.
