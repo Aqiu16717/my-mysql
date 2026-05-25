@@ -418,7 +418,8 @@ bool stmt_causes_implicit_commit(const THD *thd, uint mask) {
 
   switch (lex->sql_command) {
     case SQLCOM_DROP_TABLE:
-      return !lex->drop_temporary;
+      return !lex->drop_temporary &&
+             !(lex->create_info && lex->create_info->m_transactional_ddl);
     case SQLCOM_ALTER_TABLE:
     case SQLCOM_CREATE_TABLE:
       /* If CREATE TABLE of non-temporary table or without
@@ -5032,7 +5033,9 @@ finish:
     thd->mdl_context.release_transactional_locks();
   } else if (!thd->in_sub_stmt &&
              ((thd->lex->sql_command != SQLCOM_CREATE_TABLE &&
-               thd->lex->sql_command != SQLCOM_ALTER_TABLE) ||
+               thd->lex->sql_command != SQLCOM_ALTER_TABLE &&
+               thd->lex->sql_command != SQLCOM_DROP_TABLE) ||
+              !thd->lex->create_info ||
               !thd->lex->create_info->m_transactional_ddl)) {
     thd->mdl_context.release_statement_locks();
   }

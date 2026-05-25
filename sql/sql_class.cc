@@ -3782,65 +3782,75 @@ void THD::release_external_store() {
   @param tablename  Table name being created.
   @param hton       Handlerton representing engine used for table.
 */
+void Transactional_ddl_context::add_ddl(dd::String_type db,
+                                        dd::String_type tablename,
+                                        const handlerton *hton,
+                                        enum_sql_command cmd) {
+  auto *item = new (std::nothrow) DDL_context_item();
+  if (item == nullptr) return;  // OOM: rollback will be incomplete
+  item->m_db = db;
+  item->m_tablename = tablename;
+  item->m_hton = hton;
+  item->m_sql_command = cmd;
+  item->m_next = m_head;
+  m_head = item;
+}
+
 void Transactional_ddl_context::init(dd::String_type db,
                                      dd::String_type tablename,
                                      const handlerton *hton) {
-  assert(m_hton == nullptr);
-  /*
-    Transactional_ddl_context supports CREATE TABLE and ALTER TABLE
-    with START TRANSACTION clause.
-  */
   assert(m_thd->lex->sql_command == SQLCOM_CREATE_TABLE ||
-         m_thd->lex->sql_command == SQLCOM_ALTER_TABLE);
-  m_db = db;
-  m_tablename = tablename;
-  m_hton = hton;
+         m_thd->lex->sql_command == SQLCOM_ALTER_TABLE ||
+         m_thd->lex->sql_command == SQLCOM_DROP_TABLE);
+  add_ddl(db, tablename, hton, m_thd->lex->sql_command);
 }
 
-/**
-  Remove the table share used while creating the table, if the transaction
-  is being rolledback.
-*/
 void Transactional_ddl_context::rollback() {
   if (!inited()) return;
-  /*
-    Since the transaction is being rolledback, We need to unlock and close the
-    table belonging to this transaction.
-  */
+
   if (m_thd->lock) mysql_unlock_tables(m_thd, m_thd->lock);
   m_thd->lock = nullptr;
   if (m_thd->open_tables) close_thread_table(m_thd, &m_thd->open_tables);
+
   table_cache_manager.lock_all_and_tdc();
-
-  TABLE_SHARE *share =
-      get_cached_table_share(m_db.c_str(), m_tablename.c_str());
-  if (share) {
-    tdc_remove_table(m_thd, TDC_RT_REMOVE_ALL, m_db.c_str(),
-                     m_tablename.c_str(), true);
-
+  DDL_context_item *item = m_head;
+  while (item != nullptr) {
+    TABLE_SHARE *share =
+        get_cached_table_share(item->m_db.c_str(), item->m_tablename.c_str());
+    if (share) {
+      tdc_remove_table(m_thd, TDC_RT_REMOVE_ALL, item->m_db.c_str(),
+                       item->m_tablename.c_str(), true);
 #ifdef HAVE_PSI_TABLE_INTERFACE
-    // quick_rm_table() was not called, so remove the P_S table share here.
-    PSI_TABLE_CALL(drop_table_share)
-    (false, m_db.c_str(), strlen(m_db.c_str()), m_tablename.c_str(),
-     strlen(m_tablename.c_str()));
+      PSI_TABLE_CALL(drop_table_share)
+      (false, item->m_db.c_str(), strlen(item->m_db.c_str()),
+       item->m_tablename.c_str(), strlen(item->m_tablename.c_str()));
 #endif
+    }
+    item = item->m_next;
   }
   table_cache_manager.unlock_all_and_tdc();
+
+  // Free the DDL list.
+  while (m_head != nullptr) {
+    DDL_context_item *next = m_head->m_next;
+    delete m_head;
+    m_head = next;
+  }
 }
 
-/**
-  End the transactional context created by calling post ddl hook for engine
-  on which table is being created. This is done after transaction rollback
-  and commit.
-*/
 void Transactional_ddl_context::post_ddl() {
   if (!inited()) return;
-  if (m_hton && m_hton->post_ddl) {
-    m_hton->post_ddl(m_thd);
+
+  DDL_context_item *item = m_head;
+  while (item != nullptr) {
+    if (item->m_hton && item->m_hton->post_ddl) {
+      item->m_hton->post_ddl(m_thd);
+    }
+    DDL_context_item *next = item->m_next;
+    delete item;
+    item = next;
   }
-  m_hton = nullptr;
-  m_db = "";
-  m_tablename = "";
+  m_head = nullptr;
 }
 
 void my_ok(THD *thd, ulonglong affected_rows, ulonglong id,

@@ -888,6 +888,15 @@ extern "C" void my_message_sql(uint error, const char *str, myf MyFlags);
   This class keeps the context of transactional DDL statements. Currently only
   CREATE TABLE with START TRANSACTION uses this context.
 */
+/** A single DDL operation within a transactional DDL context. */
+struct DDL_context_item {
+  dd::String_type m_db;
+  dd::String_type m_tablename;
+  const handlerton *m_hton;
+  enum_sql_command m_sql_command;
+  DDL_context_item *m_next;
+};
+
 class Transactional_ddl_context {
  public:
   explicit Transactional_ddl_context(THD *thd) : m_thd(thd) {
@@ -895,29 +904,33 @@ class Transactional_ddl_context {
   }
 
   ~Transactional_ddl_context() {
-    assert(!m_hton);
+    assert(m_head == nullptr);
     post_ddl();
   }
 
+  /** Register a DDL operation into the transactional context. */
   void init(dd::String_type db, dd::String_type tablename,
             const handlerton *hton);
 
-  bool inited() { return m_hton != nullptr; }
+  /** @return true if at least one DDL is registered in the context. */
+  bool inited() { return m_head != nullptr; }
 
+  /** Rollback all registered DDL operations (LIFO order). */
   void rollback();
 
+  /** Notify engines that DDL operations are committed. */
   void post_ddl();
 
  private:
+  /** Add a DDL item to the linked list. */
+  void add_ddl(dd::String_type db, dd::String_type tablename,
+               const handlerton *hton, enum_sql_command cmd);
+
   // The current thread.
   THD *m_thd{nullptr};
 
-  // Handlerton pointer to table's engine begin created.
-  const handlerton *m_hton{nullptr};
-
-  // Schema and table name being created.
-  dd::String_type m_db{};
-  dd::String_type m_tablename{};
+  // Head of the DDL list (most recently added first).
+  DDL_context_item *m_head{nullptr};
 };
 
 struct PS_PARAM;
