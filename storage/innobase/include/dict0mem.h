@@ -2427,6 +2427,13 @@ detect this and will eventually quit sooner. */
   to their creating transaction. Protected by dict_sys mutex on write,
   and dict_operation_lock on read. */
   uint64_t m_creator_trx_id{0};
+
+  /** Transactional DDL state for this table.
+  0 = normal (committed), 1 = pending drop (DROP TABLE was called inside
+  a transaction but not yet committed). On commit, the table is actually
+  dropped. On rollback, the state is cleared. */
+  enum trx_ddl_state_t : uint8_t { NORMAL = 0, PENDING_DROP = 1 };
+  trx_ddl_state_t m_trx_ddl_state{NORMAL};
 #ifndef UNIV_HOTBACKUP
   /** List of locks on the table. Protected by lock_sys shard latch. */
   table_lock_list_t locks;

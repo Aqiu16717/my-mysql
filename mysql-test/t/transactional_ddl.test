@@ -1,10 +1,10 @@
 #
-# Test Transactional DDL Phase 1
+# Test Transactional DDL Phase 2
 #
 CALL mtr.add_suppression("Can't find error-message file");
 CALL mtr.add_suppression("Missing data directory for ICU regular expressions");
 
---echo # Test 1: CREATE TABLE commit in transaction
+--echo # Test 1: CREATE TABLE commit
 BEGIN;
 CREATE TABLE t1 (a INT PRIMARY KEY) START TRANSACTION;
 COMMIT;
@@ -12,12 +12,28 @@ COMMIT;
 SELECT COUNT(*) FROM t1;
 DROP TABLE t1;
 
---echo # Test 2: CREATE TABLE rollback in transaction
+--echo # Test 2: CREATE TABLE rollback
 BEGIN;
 CREATE TABLE t2 (a INT PRIMARY KEY) START TRANSACTION;
 ROLLBACK;
 --error ER_NO_SUCH_TABLE
 SELECT * FROM t2;
 
---echo # NOTE: ALTER TABLE ... START TRANSACTION requires server-layer MDL fix
---echo # for DDL+DML coexistence. CREATE TABLE phase is complete independently.
+--echo # Test 3: DROP TABLE commit
+CREATE TABLE t3 (a INT PRIMARY KEY);
+INSERT INTO t3 VALUES (1), (2);
+BEGIN;
+DROP TABLE t3 START TRANSACTION;
+COMMIT;
+--error ER_NO_SUCH_TABLE
+SELECT * FROM t3;
+
+--echo # Test 4: DROP TABLE rollback
+CREATE TABLE t4 (a INT PRIMARY KEY);
+INSERT INTO t4 VALUES (1), (2);
+BEGIN;
+DROP TABLE t4 START TRANSACTION;
+ROLLBACK;
+--replace_column 1 #
+SELECT COUNT(*) FROM t4;
+DROP TABLE t4;

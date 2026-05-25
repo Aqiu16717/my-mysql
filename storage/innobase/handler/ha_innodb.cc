@@ -6093,10 +6093,16 @@ static int innobase_commit(handlerton *hton, /*!< in: InnoDB handlerton */
 
     innobase_commit_low(trx);
 
-    /* Make ghost tables from transactional DDL visible. */
+    /* Process transactional DDL tables on commit. */
     if (!trx->ddl_ghost_tables.empty()) {
       for (auto *table : trx->ddl_ghost_tables) {
-        dict_table_make_visible(table);
+        if (table->m_trx_ddl_state == dict_table_t::PENDING_DROP) {
+          /* Execute the deferred DROP TABLE now. */
+          dict_table_remove_ghost(table, trx);
+        } else {
+          /* CREATE TABLE ghost → make visible. */
+          dict_table_make_visible(table);
+        }
       }
       trx->ddl_ghost_tables.clear();
     }
@@ -6214,10 +6220,16 @@ static int innobase_rollback(handlerton *hton, /*!< in: InnoDB handlerton */
       trx->ddl_altered_tables.clear();
     }
 
-    /* Remove ghost tables from transactional DDL before rollback. */
+    /* Process transactional DDL tables on rollback. */
     if (!trx->ddl_ghost_tables.empty()) {
       for (auto *table : trx->ddl_ghost_tables) {
-        dict_table_remove_ghost(table, trx);
+        if (table->m_trx_ddl_state == dict_table_t::PENDING_DROP) {
+          /* Clear the PENDING_DROP mark — table survives. */
+          table->m_trx_ddl_state = dict_table_t::NORMAL;
+        } else {
+          /* CREATE TABLE ghost → remove. */
+          dict_table_remove_ghost(table, trx);
+        }
       }
       trx->ddl_ghost_tables.clear();
     }
@@ -15674,6 +15686,23 @@ int ha_innobase::delete_table(const char *name, const dd::Table *table_def) {
 
   if (table_def != nullptr && table_def->is_persistent()) {
     innobase_register_trx(ht, thd, trx);
+  }
+
+  /* For transactional DDL: if inside an explicit transaction, defer the
+  actual DROP. Mark the table as PENDING_DROP and register on the trx.
+  On commit, the table is actually dropped. On rollback, the mark is
+  cleared and the table remains. */
+  if (thd_test_options(thd, OPTION_NOT_AUTOCOMMIT | OPTION_BEGIN) &&
+      !trx->is_recovered && !srv_is_being_started) {
+    dict_sys_mutex_enter();
+    dict_table_t *table = dict_table_check_if_in_cache_low(name);
+    if (table != nullptr && table->m_trx_ddl_state ==
+        dict_table_t::NORMAL) {
+      table->m_trx_ddl_state = dict_table_t::PENDING_DROP;
+      trx->ddl_ghost_tables.push_back(table);
+    }
+    dict_sys_mutex_exit();
+    return 0;
   }
 
   return (innobase_basic_ddl::delete_impl(thd, name, table_def, nullptr));

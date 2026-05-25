@@ -95,7 +95,8 @@ Drops the table and removes it from dict_sys cache.
 @param[in,out]  table   table created by transactional DDL to remove
 @param[in]      trx     transaction to use for the drop operation */
 void dict_table_remove_ghost(dict_table_t *table, trx_t *trx) {
-  ut_ad(table->m_creator_trx_id != 0);
+  ut_ad(table->m_creator_trx_id != 0 ||
+        table->m_trx_ddl_state == dict_table_t::PENDING_DROP);
   rw_lock_x_lock(dict_operation_lock, UT_LOCATION_HERE);
   dict_sys_mutex_enter();
   table->acquire();
