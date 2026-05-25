@@ -1082,6 +1082,16 @@ struct trx_t {
   transaction. On commit, these become visible (m_creator_trx_id
   cleared). On rollback, these are removed from dict_sys. */
   std::vector<dict_table_t *> ddl_ghost_tables;
+
+  /** Pre-alter state for transactional DDL rollback of ALTER TABLE.
+  Stores column count before ALTER TABLE to enable rollback via
+  instant column drop. */
+  struct ddl_alter_state {
+    dict_table_t *table;
+    uint32_t n_cols_before;
+    uint32_t n_v_cols_before;
+  };
+  std::vector<ddl_alter_state> ddl_altered_tables;
 #endif                         /* !UNIV_HOTBACKUP */
                                /*------------------------------*/
   bool api_trx;                /*!< trx started by InnoDB API */

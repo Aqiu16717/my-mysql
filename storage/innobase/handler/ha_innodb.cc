@@ -6101,6 +6101,9 @@ static int innobase_commit(handlerton *hton, /*!< in: InnoDB handlerton */
       trx->ddl_ghost_tables.clear();
     }
 
+    /* Clear ALTER TABLE pre-state snapshots — changes are committed. */
+    trx->ddl_altered_tables.clear();
+
     if (!read_only) {
       trx->flush_log_later = false;
 
@@ -6196,6 +6199,21 @@ static int innobase_rollback(handlerton *hton, /*!< in: InnoDB handlerton */
 
   if (rollback_trx ||
       !thd_test_options(thd, OPTION_NOT_AUTOCOMMIT | OPTION_BEGIN)) {
+    /* Revert ALTER TABLE changes from transactional DDL. */
+    if (!trx->ddl_altered_tables.empty()) {
+      for (auto &state : trx->ddl_altered_tables) {
+        dict_table_t *table = state.table;
+        /* Mark columns added by ALTER TABLE as instant-dropped. */
+        for (uint32_t i = state.n_cols_before; i < table->n_def; i++) {
+          dict_col_t *col = table->get_col(i);
+          col->set_version_dropped(col->get_version_added());
+        }
+        /* Restore virtual column count. */
+        table->n_v_cols = state.n_v_cols_before;
+      }
+      trx->ddl_altered_tables.clear();
+    }
+
     /* Remove ghost tables from transactional DDL before rollback. */
     if (!trx->ddl_ghost_tables.empty()) {
       for (auto *table : trx->ddl_ghost_tables) {

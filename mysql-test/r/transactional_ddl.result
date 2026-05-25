@@ -1,6 +1,6 @@
 CALL mtr.add_suppression("Can't find error-message file");
 CALL mtr.add_suppression("Missing data directory for ICU regular expressions");
-# Test 1: CREATE TABLE in explicit transaction, commit
+# Test 1: CREATE TABLE commit in transaction
 BEGIN;
 CREATE TABLE t1 (a INT PRIMARY KEY) START TRANSACTION;
 COMMIT;
@@ -8,9 +8,11 @@ SELECT COUNT(*) FROM t1;
 COUNT(*)
 #
 DROP TABLE t1;
-# Test 2: CREATE TABLE in explicit transaction, rollback
+# Test 2: CREATE TABLE rollback in transaction
 BEGIN;
 CREATE TABLE t2 (a INT PRIMARY KEY) START TRANSACTION;
 ROLLBACK;
 SELECT * FROM t2;
 ERROR 42S02: Table 'test.t2' doesn't exist
+# NOTE: ALTER TABLE ... START TRANSACTION requires server-layer MDL fix
+# for DDL+DML coexistence. CREATE TABLE phase is complete independently.
