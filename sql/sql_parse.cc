@@ -3059,14 +3059,16 @@ int mysql_execute_command(THD *thd, bool first_level) {
   }
 
   /*
-    If there is a CREATE TABLE...START TRANSACTION command which
-    is not yet committed or rollbacked, then we should allow only
-    BINLOG INSERT, COMMIT or ROLLBACK command.
-    TODO: Should we really check name of table when we cable BINLOG INSERT ?
+    If there is a transactional DDL which is not yet committed or rolled back,
+    allow only:
+    - COMMIT / ROLLBACK / BINLOG_BASE64_EVENT
+    - Additional DDLs with START TRANSACTION (multi-DDL transaction)
   */
   if (thd->m_transactional_ddl.inited() && lex->sql_command != SQLCOM_COMMIT &&
       lex->sql_command != SQLCOM_ROLLBACK &&
-      lex->sql_command != SQLCOM_BINLOG_BASE64_EVENT) {
+      lex->sql_command != SQLCOM_BINLOG_BASE64_EVENT &&
+      !(lex->create_info && lex->create_info->m_transactional_ddl) &&
+      !lex->m_transactional_ddl) {
     my_error(ER_STATEMENT_NOT_ALLOWED_AFTER_START_TRANSACTION, MYF(0));
     binlog_gtid_end_transaction(thd);
     return 1;
