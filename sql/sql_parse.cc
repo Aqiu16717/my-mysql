@@ -3063,16 +3063,16 @@ int mysql_execute_command(THD *thd, bool first_level) {
   }
 
   /*
-    If there is a transactional DDL which is not yet committed or rolled back,
-    allow only:
-    - COMMIT / ROLLBACK / BINLOG_BASE64_EVENT
-    - Additional DDLs with START TRANSACTION (multi-DDL transaction)
+    If there is a transactional DDL which is not yet committed or rolled back:
+    - Allow COMMIT / ROLLBACK / BINLOG_BASE64_EVENT explicitly
+    - Allow DML (INSERT/UPDATE/DELETE/SELECT) which don't cause implicit commit
+    - Allow additional DDLs with START TRANSACTION (multi-DDL transaction)
+    - Block anything that would trigger an implicit commit
   */
   if (thd->m_transactional_ddl.inited() && lex->sql_command != SQLCOM_COMMIT &&
       lex->sql_command != SQLCOM_ROLLBACK &&
       lex->sql_command != SQLCOM_BINLOG_BASE64_EVENT &&
-      !(lex->create_info && lex->create_info->m_transactional_ddl) &&
-      !lex->m_transactional_ddl) {
+      stmt_causes_implicit_commit(thd, CF_IMPLICIT_COMMIT_BEGIN)) {
     my_error(ER_STATEMENT_NOT_ALLOWED_AFTER_START_TRANSACTION, MYF(0));
     binlog_gtid_end_transaction(thd);
     return 1;
