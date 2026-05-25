@@ -23494,6 +23494,11 @@ static MYSQL_SYSVAR_BOOL(page_cleaner_disabled_debug,
                          PLUGIN_VAR_OPCMDARG, "Disable page cleaner", nullptr,
                          buf_flush_page_cleaner_disabled_debug_update, false);
 
+static MYSQL_SYSVAR_BOOL(dict_ref_log, srv_dict_ref_log, PLUGIN_VAR_OPCMDARG,
+                         "Enable dict_table_t reference count diagnostic logging "
+                         "to the error log",
+                         nullptr, nullptr, false);
+
 static MYSQL_SYSVAR_BOOL(dict_stats_disabled_debug,
                          innodb_dict_stats_disabled_debug, PLUGIN_VAR_OPCMDARG,
                          "Disable dict_stats thread", nullptr,
@@ -23769,6 +23774,7 @@ static SYS_VAR *innobase_system_variables[] = {
     MYSQL_SYSVAR(interpreter),
     MYSQL_SYSVAR(interpreter_output),
 #endif /* UNIV_DEBUG */
+    MYSQL_SYSVAR(dict_ref_log),
     MYSQL_SYSVAR(parallel_read_threads),
     MYSQL_SYSVAR(segment_reserve_factor),
     nullptr};

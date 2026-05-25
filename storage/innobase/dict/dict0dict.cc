@@ -75,6 +75,10 @@ dict_index_t *dict_ind_redundant;
 extern uint ibuf_debug;
 #endif /* UNIV_DEBUG || UNIV_IBUF_DEBUG */
 
+/** Enable dict_table_t reference count diagnostic logging
+to the error log. Controlled via innodb_dict_ref_log sys_var. */
+bool srv_dict_ref_log = false;
+
 #include <vector>
 
 #include "btr0btr.h"

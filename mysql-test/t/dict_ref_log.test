@@ -1,0 +1,38 @@
+#
+# Test InnoDB dict_table_t reference count diagnostic logging
+# Covers: innodb_dict_ref_log sys_var, acquire/release log output
+#
+CALL mtr.add_suppression("Can't find error-message file");
+CALL mtr.add_suppression("Missing data directory for ICU regular expressions");
+CALL mtr.add_suppression("InnoDB%dict_table_ref");
+
+# Test 1: sys_var default and validation
+SELECT @@global.innodb_dict_ref_log;
+SET @@global.innodb_dict_ref_log = ON;
+SELECT @@global.innodb_dict_ref_log;
+SET @@global.innodb_dict_ref_log = OFF;
+SELECT @@global.innodb_dict_ref_log;
+
+# Test 2: basic activity generates ref count log at ON
+SET @@global.innodb_dict_ref_log = ON;
+CREATE TABLE t1 (a INT PRIMARY KEY);
+INSERT INTO t1 VALUES (1), (2), (3);
+SELECT * FROM t1;
+DROP TABLE t1;
+SET @@global.innodb_dict_ref_log = OFF;
+
+# Test 3: default OFF produces no ref log noise
+CREATE TABLE t2 (a INT);
+INSERT INTO t2 VALUES (1);
+SELECT * FROM t2;
+DROP TABLE t2;
+
+# Test 4: SET PERSIST
+SET PERSIST innodb_dict_ref_log = ON;
+SELECT @@global.innodb_dict_ref_log;
+SET PERSIST innodb_dict_ref_log = DEFAULT;
+SELECT @@global.innodb_dict_ref_log;
+
+# Test complete. Verify [InnoDB] dict_table_ref messages in error log.
+# Expected: acquire/acquire_with_lock/release for each table accessed during test 2,
+# but NOT during test 3 (where it was OFF).

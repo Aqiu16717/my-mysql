@@ -726,6 +726,10 @@ extern bool srv_purge_view_update_only_debug;
 extern bool srv_master_thread_disabled_debug;
 #endif /* UNIV_DEBUG */
 
+/** Enable dict_table_t reference count diagnostic logging
+to the error log. Default off. */
+extern bool srv_dict_ref_log;
+
 std::chrono::seconds get_srv_fatal_semaphore_wait_threshold();
 extern std::atomic<int> srv_fatal_semaphore_wait_extend;
 

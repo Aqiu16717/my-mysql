@@ -1,0 +1,38 @@
+CALL mtr.add_suppression("Can't find error-message file");
+CALL mtr.add_suppression("Missing data directory for ICU regular expressions");
+CALL mtr.add_suppression("InnoDB%dict_table_ref");
+SELECT @@global.innodb_dict_ref_log;
+@@global.innodb_dict_ref_log
+0
+SET @@global.innodb_dict_ref_log = ON;
+SELECT @@global.innodb_dict_ref_log;
+@@global.innodb_dict_ref_log
+1
+SET @@global.innodb_dict_ref_log = OFF;
+SELECT @@global.innodb_dict_ref_log;
+@@global.innodb_dict_ref_log
+0
+SET @@global.innodb_dict_ref_log = ON;
+CREATE TABLE t1 (a INT PRIMARY KEY);
+INSERT INTO t1 VALUES (1), (2), (3);
+SELECT * FROM t1;
+a
+1
+2
+3
+DROP TABLE t1;
+SET @@global.innodb_dict_ref_log = OFF;
+CREATE TABLE t2 (a INT);
+INSERT INTO t2 VALUES (1);
+SELECT * FROM t2;
+a
+1
+DROP TABLE t2;
+SET PERSIST innodb_dict_ref_log = ON;
+SELECT @@global.innodb_dict_ref_log;
+@@global.innodb_dict_ref_log
+1
+SET PERSIST innodb_dict_ref_log = DEFAULT;
+SELECT @@global.innodb_dict_ref_log;
+@@global.innodb_dict_ref_log
+0
