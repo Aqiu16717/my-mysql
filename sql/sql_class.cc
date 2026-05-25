@@ -3787,10 +3787,11 @@ void Transactional_ddl_context::init(dd::String_type db,
                                      const handlerton *hton) {
   assert(m_hton == nullptr);
   /*
-    Currently, Transactional_ddl_context is used only for CREATE TABLE ... START
-    TRANSACTION statement.
+    Transactional_ddl_context supports CREATE TABLE and ALTER TABLE
+    with START TRANSACTION clause.
   */
-  assert(m_thd->lex->sql_command == SQLCOM_CREATE_TABLE);
+  assert(m_thd->lex->sql_command == SQLCOM_CREATE_TABLE ||
+         m_thd->lex->sql_command == SQLCOM_ALTER_TABLE);
   m_db = db;
   m_tablename = tablename;
   m_hton = hton;

@@ -3461,6 +3461,8 @@ inline bool is_sql_command_atomic_ddl(const LEX *lex) {
          (lex->sql_command == SQLCOM_CREATE_TABLE &&
           !(lex->create_info->options & HA_LEX_CREATE_TMP_TABLE) &&
           !lex->create_info->m_transactional_ddl) ||
+         (lex->sql_command == SQLCOM_ALTER_TABLE &&
+          !lex->create_info->m_transactional_ddl) ||
          (lex->sql_command == SQLCOM_DROP_TABLE && !lex->drop_temporary);
 }
 
@@ -3846,13 +3848,14 @@ Query_log_event::Query_log_event(THD *thd_arg, const char *query_arg,
 #endif
     event_logging_type = Log_event::EVENT_NORMAL_LOGGING;
     event_cache_type = Log_event::EVENT_TRANSACTIONAL_CACHE;
-  } else if (thd->lex->sql_command == SQLCOM_CREATE_TABLE &&
+  } else if ((thd->lex->sql_command == SQLCOM_CREATE_TABLE ||
+              thd->lex->sql_command == SQLCOM_ALTER_TABLE) &&
              thd->lex->create_info->m_transactional_ddl) {
     /*
-      When executing CREATE-TABLE-SELECT using engine that support atomic
-      DDL's, we cache the CREATE-TABLE event using normal logging. This
-      enables using single transaction for execution of both CREATE-TABLE
-      and INSERT's when applying the binlog events at slave.
+      When executing CREATE/ALTER-TABLE ... START TRANSACTION using engine
+      that supports atomic DDL's, we cache the DDL event using normal logging.
+      This enables using single transaction for execution of both DDL
+      and DML when applying the binlog events at slave.
     */
     event_logging_type = Log_event::EVENT_NORMAL_LOGGING;
     event_cache_type = Log_event::EVENT_TRANSACTIONAL_CACHE;

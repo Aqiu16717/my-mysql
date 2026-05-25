@@ -5031,7 +5031,8 @@ finish:
     */
     thd->mdl_context.release_transactional_locks();
   } else if (!thd->in_sub_stmt &&
-             (thd->lex->sql_command != SQLCOM_CREATE_TABLE ||
+             ((thd->lex->sql_command != SQLCOM_CREATE_TABLE &&
+               thd->lex->sql_command != SQLCOM_ALTER_TABLE) ||
               !thd->lex->create_info->m_transactional_ddl)) {
     thd->mdl_context.release_statement_locks();
   }

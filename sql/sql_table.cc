@@ -17274,11 +17274,14 @@ bool mysql_alter_table(THD *thd, const char *new_db, const char *new_name,
     }
   }
 
-  // Reject request to ALTER TABLE with START TRANSACTION.
+  // Allow ALTER TABLE ... START TRANSACTION only for engines that
+  // support atomic DDL (currently InnoDB).
   if (create_info->m_transactional_ddl) {
-    my_error(ER_NOT_ALLOWED_WITH_START_TRANSACTION, MYF(0),
-             "with ALTER TABLE command.");
-    return true;
+    if (!(create_info->db_type->flags & HTON_SUPPORTS_ATOMIC_DDL)) {
+      my_error(ER_NOT_ALLOWED_WITH_START_TRANSACTION, MYF(0),
+               "with engine that does not support atomic DDL.");
+      return true;
+    }
   }
 
   if (alter_info->with_validation != Alter_info::ALTER_VALIDATION_DEFAULT &&
@@ -19206,6 +19209,11 @@ end_inplace:
   }
 
 end_temporary:
+  if (create_info->m_transactional_ddl) {
+    thd->m_transactional_ddl.init(table_list->db, table_list->table_name,
+                                  create_info->db_type);
+  }
+
   snprintf(alter_ctx.tmp_name, sizeof(alter_ctx.tmp_name),
            ER_THD(thd, ER_INSERT_INFO), (long)(copied + deleted), (long)deleted,
            (long)thd->get_stmt_da()->current_statement_cond_count());
