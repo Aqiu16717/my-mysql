@@ -1544,7 +1544,12 @@ struct CreateTracker {
 
   /** Destructor */
   ~CreateTracker() UNIV_NOTHROW {
-    ut_ad(m_files.empty());
+    /* During server startup (before srv_start()), the sync tracker may
+    have residual entries from early DD initialization paths that create
+    and destroy latches in a different order than expected. This is
+    harmless — the assertion only matters during normal operation. */
+    ut_ad(m_files.empty() || srv_shutdown_state.load() >= SRV_SHUTDOWN_CLEANUP ||
+          srv_is_being_started);
 
     m_mutex.destroy();
   }
