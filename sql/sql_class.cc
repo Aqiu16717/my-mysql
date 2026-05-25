@@ -3793,6 +3793,7 @@ void Transactional_ddl_context::add_ddl(dd::String_type db,
   item->m_tablename = tablename;
   item->m_hton = hton;
   item->m_sql_command = cmd;
+  item->m_savepoint_id = m_savepoint_counter;
   item->m_next = m_head;
   m_head = item;
 }
@@ -3847,6 +3848,41 @@ void Transactional_ddl_context::post_ddl() {
   }
   // Memory is owned by THD::mem_root, no explicit free needed.
   m_head = nullptr;
+}
+
+void Transactional_ddl_context::rollback_to_last_savepoint() {
+  if (!inited()) return;
+
+  // Rollback DDL items registered after the most recent savepoint
+  // (those with m_savepoint_id >= current counter).
+  uint target = m_savepoint_counter;
+
+  if (m_thd->lock) mysql_unlock_tables(m_thd, m_thd->lock);
+  m_thd->lock = nullptr;
+  if (m_thd->open_tables) close_thread_table(m_thd, &m_thd->open_tables);
+
+  DDL_context_item **prev_ptr = &m_head;
+  DDL_context_item *item = m_head;
+  while (item != nullptr && item->m_savepoint_id >= target) {
+    table_cache_manager.lock_all_and_tdc();
+    TABLE_SHARE *share =
+        get_cached_table_share(item->m_db.c_str(), item->m_tablename.c_str());
+    if (share) {
+      tdc_remove_table(m_thd, TDC_RT_REMOVE_ALL, item->m_db.c_str(),
+                       item->m_tablename.c_str(), true);
+#ifdef HAVE_PSI_TABLE_INTERFACE
+      PSI_TABLE_CALL(drop_table_share)
+      (false, item->m_db.c_str(), strlen(item->m_db.c_str()),
+       item->m_tablename.c_str(), strlen(item->m_tablename.c_str()));
+#endif
+    }
+    table_cache_manager.unlock_all_and_tdc();
+
+    *prev_ptr = item->m_next;
+    item = item->m_next;
+  }
+  // Decrement counter after rollback so subsequent DDLs get a new savepoint level.
+  if (m_savepoint_counter > 0) --m_savepoint_counter;
 }
 
 void my_ok(THD *thd, ulonglong affected_rows, ulonglong id,

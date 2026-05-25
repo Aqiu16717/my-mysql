@@ -4389,11 +4389,15 @@ int mysql_execute_command(THD *thd, bool first_level) {
       my_ok(thd);
       break;
     case SQLCOM_ROLLBACK_TO_SAVEPOINT:
+      // Rollback DDL context before InnoDB savepoint rollback.
+      thd->m_transactional_ddl.rollback_to_last_savepoint();
       if (trans_rollback_to_savepoint(thd, lex->ident)) goto error;
       my_ok(thd);
       break;
     case SQLCOM_SAVEPOINT:
       if (trans_savepoint(thd, lex->ident)) goto error;
+      // Record a new DDL savepoint level.
+      thd->m_transactional_ddl.record_savepoint();
       my_ok(thd);
       break;
     case SQLCOM_CREATE_PROCEDURE:

@@ -895,6 +895,7 @@ struct DDL_context_item {
   const handlerton *m_hton;
   enum_sql_command m_sql_command;
   DDL_context_item *m_next;
+  uint m_savepoint_id{0};
 };
 
 class Transactional_ddl_context {
@@ -921,6 +922,12 @@ class Transactional_ddl_context {
   /** Notify engines that DDL operations are committed. */
   void post_ddl();
 
+  /** Record a savepoint. */
+  void record_savepoint() { ++m_savepoint_counter; }
+
+  /** Rollback DDLs registered after the most recent savepoint. */
+  void rollback_to_last_savepoint();
+
  private:
   /** Add a DDL item to the linked list. */
   void add_ddl(dd::String_type db, dd::String_type tablename,
@@ -931,6 +938,9 @@ class Transactional_ddl_context {
 
   // Head of the DDL list (most recently added first).
   DDL_context_item *m_head{nullptr};
+
+  // Monotonically increasing savepoint counter.
+  uint m_savepoint_counter{0};
 };
 
 struct PS_PARAM;
