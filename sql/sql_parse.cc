@@ -431,6 +431,7 @@ bool stmt_causes_implicit_commit(const THD *thd, uint mask) {
       return lex->autocommit;
     case SQLCOM_RESET:
       return lex->option_type != OPT_PERSIST;
+    case SQLCOM_TRUNCATE:
     case SQLCOM_CREATE_INDEX:
     case SQLCOM_DROP_INDEX:
       return !lex->m_transactional_ddl;

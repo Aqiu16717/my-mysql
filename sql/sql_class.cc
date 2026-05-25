@@ -3804,6 +3804,7 @@ void Transactional_ddl_context::init(dd::String_type db,
   assert(m_thd->lex->sql_command == SQLCOM_CREATE_TABLE ||
          m_thd->lex->sql_command == SQLCOM_ALTER_TABLE ||
          m_thd->lex->sql_command == SQLCOM_DROP_TABLE ||
+         m_thd->lex->sql_command == SQLCOM_TRUNCATE ||
          m_thd->lex->sql_command == SQLCOM_CREATE_INDEX ||
          m_thd->lex->sql_command == SQLCOM_DROP_INDEX);
   add_ddl(db, tablename, hton, m_thd->lex->sql_command);
