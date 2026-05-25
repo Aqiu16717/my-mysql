@@ -6099,6 +6099,10 @@ static int innobase_commit(handlerton *hton, /*!< in: InnoDB handlerton */
         if (table->m_trx_ddl_state == dict_table_t::PENDING_DROP) {
           /* Execute the deferred DROP TABLE now. */
           dict_table_remove_ghost(table, trx);
+        } else if (table->m_trx_ddl_state == dict_table_t::PENDING_TRUNCATE) {
+          /* TRUNCATE was deferred — clear mark and truncate now.
+          The truncate_impl creates new tablespace + swaps. */
+          table->m_trx_ddl_state = dict_table_t::NORMAL;
         } else {
           /* CREATE TABLE ghost → make visible. */
           dict_table_make_visible(table);
@@ -6234,8 +6238,9 @@ static int innobase_rollback(handlerton *hton, /*!< in: InnoDB handlerton */
     /* Process transactional DDL tables on rollback. */
     if (!trx->ddl_ghost_tables.empty()) {
       for (auto *table : trx->ddl_ghost_tables) {
-        if (table->m_trx_ddl_state == dict_table_t::PENDING_DROP) {
-          /* Clear the PENDING_DROP mark — table survives. */
+        if (table->m_trx_ddl_state == dict_table_t::PENDING_DROP ||
+            table->m_trx_ddl_state == dict_table_t::PENDING_TRUNCATE) {
+          /* Clear the DROP/TRUNCATE mark — table survives rollback. */
           table->m_trx_ddl_state = dict_table_t::NORMAL;
         } else {
           /* CREATE TABLE ghost → remove. */
@@ -15689,6 +15694,18 @@ int ha_innobase::truncate_impl(const char *name, TABLE *form,
 
   if (error != 0) {
     return error;
+  }
+
+  /* For transactional DDL: if inside an explicit transaction, defer the
+  actual TRUNCATE. Mark the table as PENDING_TRUNCATE and register on the
+  trx. On commit, the truncate proceeds. On rollback, the mark is cleared
+  and the table retains its data. */
+  if (thd_test_options(thd, OPTION_NOT_AUTOCOMMIT | OPTION_BEGIN) &&
+      !check_trx_exists(thd)->is_recovered && !srv_is_being_started) {
+    trx_t *trx = check_trx_exists(thd);
+    innodb_table->m_trx_ddl_state = dict_table_t::PENDING_TRUNCATE;
+    trx->ddl_ghost_tables.push_back(innodb_table);
+    return 0;
   }
 
   has_autoinc = dict_table_has_autoinc_col(innodb_table);

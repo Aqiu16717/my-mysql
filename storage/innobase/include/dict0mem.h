@@ -2432,7 +2432,11 @@ detect this and will eventually quit sooner. */
   0 = normal (committed), 1 = pending drop (DROP TABLE was called inside
   a transaction but not yet committed). On commit, the table is actually
   dropped. On rollback, the state is cleared. */
-  enum trx_ddl_state_t : uint8_t { NORMAL = 0, PENDING_DROP = 1 };
+  enum trx_ddl_state_t : uint8_t {
+    NORMAL = 0,
+    PENDING_DROP = 1,
+    PENDING_TRUNCATE = 2
+  };
   trx_ddl_state_t m_trx_ddl_state{NORMAL};
 #ifndef UNIV_HOTBACKUP
   /** List of locks on the table. Protected by lock_sys shard latch. */
