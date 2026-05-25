@@ -6209,6 +6209,17 @@ static int innobase_rollback(handlerton *hton, /*!< in: InnoDB handlerton */
     if (!trx->ddl_altered_tables.empty()) {
       for (auto &state : trx->ddl_altered_tables) {
         dict_table_t *table = state.table;
+        /* Remove indexes created by this DDL from cache.
+        B-tree pages are left as orphan — reclaimed on table drop
+        (Phase 2.5 limitation, full cleanup in Phase 3). */
+        ulint current_count = UT_LIST_GET_LEN(table->indexes);
+        while (current_count > state.n_indexes_before && current_count > 0) {
+          dict_index_t *idx = UT_LIST_GET_LAST(table->indexes);
+          if (idx != nullptr) {
+            dict_index_remove_from_cache(table, idx);
+          }
+          current_count = UT_LIST_GET_LEN(table->indexes);
+        }
         /* Mark columns added by ALTER TABLE as instant-dropped. */
         for (uint32_t i = state.n_cols_before; i < table->n_def; i++) {
           dict_col_t *col = table->get_col(i);
@@ -6320,6 +6331,16 @@ static int innobase_rollback_to_savepoint(
   while (it != trx->ddl_altered_tables.end()) {
     if (it->savepoint_id >= target_level) {
       dict_table_t *table = it->table;
+      /* Remove indexes created at/above this savepoint. */
+      ulint current_count = UT_LIST_GET_LEN(table->indexes);
+      while (current_count > it->n_indexes_before && current_count > 0) {
+        dict_index_t *idx = UT_LIST_GET_LAST(table->indexes);
+        if (idx != nullptr) {
+          dict_index_remove_from_cache(table, idx);
+        }
+        current_count = UT_LIST_GET_LEN(table->indexes);
+      }
+      /* Mark added columns as instant-dropped. */
       for (uint32_t i = it->n_cols_before; i < table->n_def; i++) {
         dict_col_t *col = table->get_col(i);
         col->set_version_dropped(col->get_version_added());

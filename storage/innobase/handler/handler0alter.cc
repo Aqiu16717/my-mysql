@@ -1629,11 +1629,13 @@ bool ha_innobase::commit_inplace_alter_table(TABLE *altered_table,
   /* For transactional DDL: save pre-alter column state before instant DDL
   modifies the table, so we can revert on rollback. */
   uint32_t pre_alter_n_cols = 0, pre_alter_n_v_cols = 0;
+  uint32_t pre_alter_n_indexes = 0;
   bool in_transactional_ddl = false;
   if (commit && m_prebuilt->table != nullptr &&
       thd_test_options(m_user_thd, OPTION_NOT_AUTOCOMMIT | OPTION_BEGIN)) {
     pre_alter_n_cols = m_prebuilt->table->n_def;
     pre_alter_n_v_cols = static_cast<uint32_t>(m_prebuilt->table->n_v_cols);
+    pre_alter_n_indexes = UT_LIST_GET_LEN(m_prebuilt->table->indexes);
     in_transactional_ddl = true;
   }
 
@@ -1674,7 +1676,7 @@ bool ha_innobase::commit_inplace_alter_table(TABLE *altered_table,
   if (in_transactional_ddl && !res) {
     m_prebuilt->trx->ddl_altered_tables.push_back(
         {m_prebuilt->table, pre_alter_n_cols, pre_alter_n_v_cols,
-         m_prebuilt->trx->ddl_savepoint_level});
+         pre_alter_n_indexes, m_prebuilt->trx->ddl_savepoint_level});
   }
 
 #ifdef UNIV_DEBUG

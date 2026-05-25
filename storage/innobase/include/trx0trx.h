@@ -1095,6 +1095,9 @@ struct trx_t {
     dict_table_t *table;
     uint32_t n_cols_before;
     uint32_t n_v_cols_before;
+    /** Number of indexes before ALTER TABLE, for rollback of
+    CREATE INDEX: indexes at or beyond this count are new. */
+    uint32_t n_indexes_before{0};
     /** Savepoint level when this DDL was executed. */
     uint32_t savepoint_id;
   };
