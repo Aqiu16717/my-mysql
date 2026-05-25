@@ -3786,7 +3786,8 @@ void Transactional_ddl_context::add_ddl(dd::String_type db,
                                         dd::String_type tablename,
                                         const handlerton *hton,
                                         enum_sql_command cmd) {
-  auto *item = new (std::nothrow) DDL_context_item();
+  auto *item = static_cast<DDL_context_item *>(
+      m_thd->mem_root->Alloc(sizeof(DDL_context_item)));
   if (item == nullptr) return;  // OOM: rollback will be incomplete
   item->m_db = db;
   item->m_tablename = tablename;
@@ -3830,12 +3831,8 @@ void Transactional_ddl_context::rollback() {
   }
   table_cache_manager.unlock_all_and_tdc();
 
-  // Free the DDL list.
-  while (m_head != nullptr) {
-    DDL_context_item *next = m_head->m_next;
-    delete m_head;
-    m_head = next;
-  }
+  // Reset the list (memory is owned by THD::mem_root).
+  m_head = nullptr;
 }
 
 void Transactional_ddl_context::post_ddl() {
@@ -3846,10 +3843,9 @@ void Transactional_ddl_context::post_ddl() {
     if (item->m_hton && item->m_hton->post_ddl) {
       item->m_hton->post_ddl(m_thd);
     }
-    DDL_context_item *next = item->m_next;
-    delete item;
-    item = next;
+    item = item->m_next;
   }
+  // Memory is owned by THD::mem_root, no explicit free needed.
   m_head = nullptr;
 }
 
