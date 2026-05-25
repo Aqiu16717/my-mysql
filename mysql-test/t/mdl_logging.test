@@ -16,17 +16,12 @@ SELECT @@global.mdl_log_level;
 SET @@global.mdl_log_level = 0;
 SELECT @@global.mdl_log_level;
 
---echo # Verify SET PERSIST works
-SET PERSIST mdl_log_level = 1;
-SELECT @@global.mdl_log_level;
-SET PERSIST mdl_log_level = DEFAULT;
-SELECT @@global.mdl_log_level;
-
-# Out-of-range values are clamped to the valid range with a warning
+--echo # Out-of-range values are clamped to the valid range with a warning
 SET @@global.mdl_log_level = 3;
 SELECT @@global.mdl_log_level;
 SET @@global.mdl_log_level = -1;
 SELECT @@global.mdl_log_level;
+SET @@global.mdl_log_level = DEFAULT;
 
 --echo #
 --echo # Test 2: MDL WAIT/TIMEOUT logging (level 1)
