@@ -53,6 +53,8 @@
 #include "mysqld_error.h"
 #include "prealloced_array.h"
 #include "sql/debug_sync.h"
+#include "sql/log.h"
+#include "sql/sql_class.h"
 #include "sql/thr_malloc.h"
 
 extern MYSQL_PLUGIN_IMPORT CHARSET_INFO *system_charset_info;
@@ -285,6 +287,111 @@ class MDL_map {
 */
 int32 mdl_locks_unused_locks_low_water =
     MDL_LOCKS_UNUSED_LOCKS_LOW_WATER_DEFAULT;
+
+/**
+  Controls verbosity of MDL diagnostic logging to the error log.
+
+  Levels:
+    0 = OFF     — no MDL logging (default)
+    1 = BASIC   — log lock wait, timeout, deadlock, kill, and upgrade events
+    2 = DETAIL  — additionally log lock acquire and release
+
+  Dynamic, GLOBAL scope, SET PERSIST supported.
+*/
+uint mdl_log_level = 0;
+
+/** Return a string name for an MDL lock type. */
+static const char *mdl_type_name(enum_mdl_type type) {
+  switch (type) {
+    case MDL_INTENTION_EXCLUSIVE:
+      return "MDL_INTENTION_EXCLUSIVE";
+    case MDL_SHARED:
+      return "MDL_SHARED";
+    case MDL_SHARED_HIGH_PRIO:
+      return "MDL_SHARED_HIGH_PRIO";
+    case MDL_SHARED_READ:
+      return "MDL_SHARED_READ";
+    case MDL_SHARED_WRITE:
+      return "MDL_SHARED_WRITE";
+    case MDL_SHARED_WRITE_LOW_PRIO:
+      return "MDL_SHARED_WRITE_LOW_PRIO";
+    case MDL_SHARED_UPGRADABLE:
+      return "MDL_SHARED_UPGRADABLE";
+    case MDL_SHARED_READ_ONLY:
+      return "MDL_SHARED_READ_ONLY";
+    case MDL_SHARED_NO_WRITE:
+      return "MDL_SHARED_NO_WRITE";
+    case MDL_SHARED_NO_READ_WRITE:
+      return "MDL_SHARED_NO_READ_WRITE";
+    case MDL_EXCLUSIVE:
+      return "MDL_EXCLUSIVE";
+    case MDL_TYPE_END:
+      return "MDL_TYPE_END";
+  }
+  return "UNKNOWN";
+}
+
+/** Return a string name for an MDL duration. */
+static const char *mdl_duration_name(enum_mdl_duration dur) {
+  switch (dur) {
+    case MDL_STATEMENT:
+      return "STATEMENT";
+    case MDL_TRANSACTION:
+      return "TRANSACTION";
+    case MDL_EXPLICIT:
+      return "EXPLICIT";
+    case MDL_DURATION_END:
+      return "END";
+  }
+  return "UNKNOWN";
+}
+
+/** Return a string name for an MDL namespace. */
+static const char *mdl_namespace_name(MDL_key::enum_mdl_namespace ns) {
+  switch (ns) {
+    case MDL_key::GLOBAL:
+      return "GLOBAL";
+    case MDL_key::BACKUP_LOCK:
+      return "BACKUP_LOCK";
+    case MDL_key::TABLESPACE:
+      return "TABLESPACE";
+    case MDL_key::SCHEMA:
+      return "SCHEMA";
+    case MDL_key::TABLE:
+      return "TABLE";
+    case MDL_key::FUNCTION:
+      return "FUNCTION";
+    case MDL_key::PROCEDURE:
+      return "PROCEDURE";
+    case MDL_key::TRIGGER:
+      return "TRIGGER";
+    case MDL_key::EVENT:
+      return "EVENT";
+    case MDL_key::COMMIT:
+      return "COMMIT";
+    case MDL_key::USER_LEVEL_LOCK:
+      return "USER_LEVEL_LOCK";
+    case MDL_key::LOCKING_SERVICE:
+      return "LOCKING_SERVICE";
+    case MDL_key::SRID:
+      return "SRID";
+    case MDL_key::ACL_CACHE:
+      return "ACL_CACHE";
+    case MDL_key::COLUMN_STATISTICS:
+      return "COLUMN_STATISTICS";
+    case MDL_key::RESOURCE_GROUPS:
+      return "RESOURCE_GROUPS";
+    case MDL_key::FOREIGN_KEY:
+      return "FOREIGN_KEY";
+    case MDL_key::CHECK_CONSTRAINT:
+      return "CHECK_CONSTRAINT";
+    case MDL_key::LIBRARY:
+      return "LIBRARY";
+    case MDL_key::NAMESPACE_END:
+      return "NAMESPACE_END";
+  }
+  return "UNKNOWN";
+}
 
 /**
   A context of the recursive traversal through all contexts
@@ -2747,6 +2854,17 @@ bool MDL_context::try_acquire_lock(MDL_request *mdl_request) {
     MDL_ticket::destroy(ticket);
   }
 
+  if (mdl_log_level >= 2 && mdl_request->ticket) {
+    THD *thd = get_thd();
+    sql_print_information(
+        "[MDL] ACQUIRE: conn=%u db=%s tbl=%s ns=%s type=%s dur=%s",
+        thd ? thd->thread_id() : 0, mdl_request->key.db_name(),
+        mdl_request->key.name(),
+        mdl_namespace_name(mdl_request->key.mdl_namespace()),
+        mdl_type_name(mdl_request->type),
+        mdl_duration_name(mdl_request->duration));
+  }
+
   return false;
 }
 
@@ -3432,6 +3550,21 @@ bool MDL_context::acquire_lock(MDL_request *mdl_request,
 
   if (lock->needs_notification(ticket)) lock->notify_conflicting_locks(this);
 
+  uint holder_conn = 0;
+  const char *holder_type_str = "NONE";
+  if (mdl_log_level >= 1) {
+    MDL_lock::Ticket_iterator granted_it(lock->m_granted);
+    MDL_ticket *granted_ticket;
+    while ((granted_ticket = granted_it++)) {
+      if (granted_ticket->is_incompatible_when_granted(mdl_request->type)) {
+        THD *holder_thd = granted_ticket->get_ctx()->get_thd();
+        holder_conn = holder_thd ? holder_thd->thread_id() : 0;
+        holder_type_str = mdl_type_name(granted_ticket->get_type());
+        break;
+      }
+    }
+  }
+
   mysql_prlock_unlock(&lock->m_rwlock);
 
 #ifdef HAVE_PSI_METADATA_INTERFACE
@@ -3448,6 +3581,20 @@ bool MDL_context::acquire_lock(MDL_request *mdl_request,
 
   /* There is a shared or exclusive lock on the object. */
   DEBUG_SYNC(get_thd(), "mdl_acquire_lock_wait");
+
+  if (mdl_log_level >= 1) {
+    THD *thd = get_thd();
+    sql_print_information(
+        "[MDL] WAIT: conn=%u db=%s tbl=%s ns=%s type=%s dur=%s timeout=%llu "
+        "holder_conn=%u holder_type=%s",
+        thd ? thd->thread_id() : 0, mdl_request->key.db_name(),
+        mdl_request->key.name(),
+        mdl_namespace_name(mdl_request->key.mdl_namespace()),
+        mdl_type_name(mdl_request->type),
+        mdl_duration_name(mdl_request->duration),
+        (unsigned long long)lock_wait_timeout,
+        holder_conn, holder_type_str);
+  }
 
   /*
     Avoid deadlock detection in case when we are sure that introduction of
@@ -3562,12 +3709,40 @@ bool MDL_context::acquire_lock(MDL_request *mdl_request,
     MDL_ticket::destroy(ticket);
     switch (wait_status) {
       case MDL_wait::VICTIM:
+        if (mdl_log_level >= 1) {
+          THD *thd = get_thd();
+          sql_print_information(
+              "[MDL] DEADLOCK_VICTIM: conn=%u db=%s tbl=%s ns=%s type=%s",
+              thd ? thd->thread_id() : 0, mdl_request->key.db_name(),
+              mdl_request->key.name(),
+              mdl_namespace_name(mdl_request->key.mdl_namespace()),
+              mdl_type_name(mdl_request->type));
+        }
         my_error(ER_LOCK_DEADLOCK, MYF(0));
         break;
       case MDL_wait::TIMEOUT:
+        if (mdl_log_level >= 1) {
+          THD *thd = get_thd();
+          sql_print_information(
+              "[MDL] TIMEOUT: conn=%u db=%s tbl=%s ns=%s type=%s timeout=%llu",
+              thd ? thd->thread_id() : 0, mdl_request->key.db_name(),
+              mdl_request->key.name(),
+              mdl_namespace_name(mdl_request->key.mdl_namespace()),
+              mdl_type_name(mdl_request->type),
+              (unsigned long long)lock_wait_timeout);
+        }
         my_error(ER_LOCK_WAIT_TIMEOUT, MYF(0));
         break;
       case MDL_wait::KILLED:
+        if (mdl_log_level >= 1) {
+          THD *thd = get_thd();
+          sql_print_information(
+              "[MDL] KILLED: conn=%u db=%s tbl=%s ns=%s type=%s",
+              thd ? thd->thread_id() : 0, mdl_request->key.db_name(),
+              mdl_request->key.name(),
+              mdl_namespace_name(mdl_request->key.mdl_namespace()),
+              mdl_type_name(mdl_request->type));
+        }
         if (get_owner()->is_killed() == ER_QUERY_TIMEOUT)
           my_error(ER_QUERY_TIMEOUT, MYF(0));
         else
@@ -3592,6 +3767,17 @@ bool MDL_context::acquire_lock(MDL_request *mdl_request,
   mdl_request->ticket = ticket;
 
   mysql_mdl_set_status(ticket->m_psi, MDL_ticket::GRANTED);
+
+  if (mdl_log_level >= 1) {
+    THD *thd = get_thd();
+    sql_print_information(
+        "[MDL] ACQUIRE: conn=%u db=%s tbl=%s ns=%s type=%s dur=%s (after wait)",
+        thd ? thd->thread_id() : 0, mdl_request->key.db_name(),
+        mdl_request->key.name(),
+        mdl_namespace_name(mdl_request->key.mdl_namespace()),
+        mdl_type_name(mdl_request->type),
+        mdl_duration_name(mdl_request->duration));
+  }
 
   return false;
 }
@@ -3757,6 +3943,17 @@ bool MDL_context::upgrade_shared_lock(MDL_ticket *mdl_ticket,
 
   DBUG_TRACE;
   DEBUG_SYNC(get_thd(), "mdl_upgrade_lock");
+
+  if (mdl_log_level >= 1) {
+    THD *thd = get_thd();
+    sql_print_information(
+        "[MDL] UPGRADE: conn=%u db=%s tbl=%s ns=%s from=%s to=%s",
+        thd ? thd->thread_id() : 0,
+        mdl_ticket->get_key()->db_name(), mdl_ticket->get_key()->name(),
+        mdl_namespace_name(mdl_ticket->get_key()->mdl_namespace()),
+        mdl_type_name(mdl_ticket->get_type()),
+        mdl_type_name(new_type));
+  }
 
   /*
     Do nothing if already upgraded. Used when we FLUSH TABLE under
@@ -4063,6 +4260,15 @@ void MDL_context::find_deadlock() {
 
     victim = dvisitor.get_victim();
 
+    if (mdl_log_level >= 1) {
+      THD *thd = get_thd();
+      THD *victim_thd = victim->get_thd();
+      sql_print_information(
+          "[MDL] DEADLOCK: detector_conn=%u victim_conn=%u",
+          thd ? thd->thread_id() : 0,
+          victim_thd ? victim_thd->thread_id() : 0);
+    }
+
     /*
       Failure to change status of the victim is OK as it means
       that the victim has received some other message and is
@@ -4106,6 +4312,17 @@ void MDL_context::release_lock(enum_mdl_duration duration, MDL_ticket *ticket) {
                                   << (int)ticket->get_key()->mdl_namespace()
                                   << "," << ticket->get_key()->db_name() << "."
                                   << ticket->get_key()->name() << ")");
+
+  if (mdl_log_level >= 2) {
+    THD *thd = get_thd();
+    sql_print_information(
+        "[MDL] RELEASE: conn=%u db=%s tbl=%s ns=%s type=%s dur=%s",
+        thd ? thd->thread_id() : 0, lock->key.db_name(), lock->key.name(),
+        mdl_namespace_name(ticket->get_key()->mdl_namespace()),
+        mdl_type_name(ticket->get_type()),
+        mdl_duration_name(duration));
+  }
+
   assert(this == ticket->get_ctx());
   mysql_mutex_assert_not_owner(&LOCK_open);
 

@@ -2998,6 +2998,14 @@ static Sys_var_ulong Sys_max_write_lock_count(
     GLOBAL_VAR(max_write_lock_count), CMD_LINE(REQUIRED_ARG),
     VALID_RANGE(1, ULONG_MAX), DEFAULT(ULONG_MAX), BLOCK_SIZE(1));
 
+static Sys_var_uint Sys_mdl_log_level(
+    "mdl_log_level",
+    "MDL diagnostic logging to error log: "
+    "0=off, 1=log lock wait/timeout/deadlock/kill/upgrade, "
+    "2=also log lock acquire and release",
+    GLOBAL_VAR(mdl_log_level), CMD_LINE(OPT_ARG),
+    VALID_RANGE(0, 2), DEFAULT(0), BLOCK_SIZE(1));
+
 static Sys_var_ulong Sys_min_examined_row_limit(
     "min_examined_row_limit",
     "Don't write queries to slow log that examine fewer rows "

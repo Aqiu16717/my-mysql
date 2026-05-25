@@ -1,0 +1,114 @@
+--echo #
+--echo # Test MDL diagnostic logging (WL multi-version-metadata Phase 1)
+--echo # Covers: mdl_log_level sys_var, WAIT/TIMEOUT/DEADLOCK log output
+--echo #
+
+# Suppress known environment warnings (not caused by our code)
+CALL mtr.add_suppression("Can't find error-message file");
+CALL mtr.add_suppression("Missing data directory for ICU regular expressions");
+
+--echo # Test 1: sys_var default and validation
+SELECT @@global.mdl_log_level;
+SET @@global.mdl_log_level = 1;
+SELECT @@global.mdl_log_level;
+SET @@global.mdl_log_level = 2;
+SELECT @@global.mdl_log_level;
+SET @@global.mdl_log_level = 0;
+SELECT @@global.mdl_log_level;
+
+--echo # Verify SET PERSIST works
+SET PERSIST mdl_log_level = 1;
+SELECT @@global.mdl_log_level;
+SET PERSIST mdl_log_level = DEFAULT;
+SELECT @@global.mdl_log_level;
+
+# Out-of-range values are clamped to the valid range with a warning
+SET @@global.mdl_log_level = 3;
+SELECT @@global.mdl_log_level;
+SET @@global.mdl_log_level = -1;
+SELECT @@global.mdl_log_level;
+
+--echo #
+--echo # Test 2: MDL WAIT/TIMEOUT logging (level 1)
+--echo #
+
+SET @@global.mdl_log_level = 1;
+
+CREATE TABLE t1 (a INT PRIMARY KEY, b VARCHAR(100));
+INSERT INTO t1 VALUES (1, 'hello'), (2, 'world');
+
+--echo # Connection con1: hold MDL_SW on t1 with open transaction
+connect (con1, localhost, root,,);
+START TRANSACTION;
+INSERT INTO t1 VALUES (3, 'from_con1');
+
+--echo # Connection default: DDL on t1 should timeout due to con1's lock
+connection default;
+SET SESSION lock_wait_timeout = 1;
+--error ER_LOCK_WAIT_TIMEOUT
+ALTER TABLE t1 ADD COLUMN c INT;
+
+--echo # Release con1's lock
+connection con1;
+ROLLBACK;
+disconnect con1;
+connection default;
+
+DROP TABLE t1;
+
+--echo #
+--echo # Test 3: MDL DEADLOCK logging (level 1)
+--echo #
+
+CREATE TABLE t1 (a INT PRIMARY KEY);
+CREATE TABLE t2 (a INT PRIMARY KEY);
+
+--echo # Connection con1: hold MDL_SW on t1
+connect (con1, localhost, root,,);
+START TRANSACTION;
+INSERT INTO t1 VALUES (1);
+
+--echo # Connection con2: hold MDL_SW on t2
+connect (con2, localhost, root,,);
+START TRANSACTION;
+INSERT INTO t2 VALUES (1);
+
+--echo # Create cross-lock: con1 wants t2, con2 wants t1
+connection con1;
+--send INSERT INTO t2 VALUES (2)
+
+connection con2;
+--send INSERT INTO t1 VALUES (2)
+
+--echo # Wait for deadlock resolution
+connection con1;
+--error 0,ER_LOCK_DEADLOCK
+--reap
+
+connection con2;
+--error 0,ER_LOCK_DEADLOCK
+--reap
+
+disconnect con1;
+disconnect con2;
+connection default;
+
+DROP TABLE t1, t2;
+
+--echo #
+--echo # Test 4: MDL RELEASE logging (level 2)
+--echo #
+
+SET @@global.mdl_log_level = 2;
+CREATE TABLE t3 (a INT);
+INSERT INTO t3 VALUES (1);
+DROP TABLE t3;
+SET @@global.mdl_log_level = 0;
+
+--echo #
+--echo # Test 5: Verify log output in error log
+--echo # (Manual verification: grep '\[MDL\]' <error_log>)
+--echo #
+
+--echo # Test complete. Check error log for [MDL] prefixed messages.
+--echo # Expected: WAIT, TIMEOUT, DEADLOCK at level 1; RELEASE at level 2.

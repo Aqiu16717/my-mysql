@@ -1726,6 +1726,7 @@ extern mysql_mutex_t LOCK_open;
   to avoid starving out weak, lower priority locks.
 */
 extern ulong max_write_lock_count;
+extern uint mdl_log_level;
 
 extern int32 mdl_locks_unused_locks_low_water;
 
