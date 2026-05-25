@@ -6093,6 +6093,14 @@ static int innobase_commit(handlerton *hton, /*!< in: InnoDB handlerton */
 
     innobase_commit_low(trx);
 
+    /* Make ghost tables from transactional DDL visible. */
+    if (!trx->ddl_ghost_tables.empty()) {
+      for (auto *table : trx->ddl_ghost_tables) {
+        dict_table_make_visible(table);
+      }
+      trx->ddl_ghost_tables.clear();
+    }
+
     if (!read_only) {
       trx->flush_log_later = false;
 
@@ -6188,6 +6196,14 @@ static int innobase_rollback(handlerton *hton, /*!< in: InnoDB handlerton */
 
   if (rollback_trx ||
       !thd_test_options(thd, OPTION_NOT_AUTOCOMMIT | OPTION_BEGIN)) {
+    /* Remove ghost tables from transactional DDL before rollback. */
+    if (!trx->ddl_ghost_tables.empty()) {
+      for (auto *table : trx->ddl_ghost_tables) {
+        dict_table_remove_ghost(table, trx);
+      }
+      trx->ddl_ghost_tables.clear();
+    }
+
     error = trx_rollback_for_mysql(trx);
 
     ut_ad(trx_can_be_handled_by_current_thread_or_is_hp_victim(trx));
@@ -15398,9 +15414,26 @@ int ha_innobase::create(const char *name, TABLE *form,
   dict_sys mutex protection, and could be changed while creating the
   table. So we read the current value here and make all further
   decisions based on this. */
-  return (innobase_basic_ddl::create_impl(ha_thd(), name, form, create_info,
-                                          table_def, srv_file_per_table, true,
-                                          false, 0, 0, nullptr));
+  int err = innobase_basic_ddl::create_impl(ha_thd(), name, form, create_info,
+                                            table_def, srv_file_per_table, true,
+                                            false, 0, 0, nullptr);
+  if (err == 0 && !(create_info->options & HA_LEX_CREATE_TMP_TABLE) &&
+      thd_sql_command(thd) == SQLCOM_CREATE_TABLE &&
+      thd_test_options(thd, OPTION_NOT_AUTOCOMMIT | OPTION_BEGIN) &&
+      !trx->is_recovered && !srv_is_being_started) {
+    /* This is a user-issued CREATE TABLE inside an explicit transaction.
+    Register the created table as a ghost. On commit, it becomes visible.
+    On rollback, it will be dropped. Skip during bootstrap/recovery. */
+    dict_sys_mutex_enter();
+    dict_table_t *table =
+        dict_table_check_if_in_cache_low(name);
+    if (table != nullptr) {
+      table->m_creator_trx_id = trx->id;
+      trx->ddl_ghost_tables.push_back(table);
+    }
+    dict_sys_mutex_exit();
+  }
+  return err;
 }
 
 /** Discards or imports an InnoDB tablespace.

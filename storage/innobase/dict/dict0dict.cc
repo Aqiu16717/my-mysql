@@ -75,6 +75,35 @@ dict_index_t *dict_ind_redundant;
 extern uint ibuf_debug;
 #endif /* UNIV_DEBUG || UNIV_IBUF_DEBUG */
 
+#ifdef UNIV_DEBUG
+/** Enable dict_table_t reference count diagnostic logging. */
+bool srv_dict_ref_log = false;
+#endif
+
+/** Make a ghost table globally visible after transactional DDL commit.
+@param[in,out]  table   table to make visible (clears m_creator_trx_id) */
+void dict_table_make_visible(dict_table_t *table) {
+  dict_sys_mutex_enter();
+  if (table->m_creator_trx_id != 0) {
+    table->m_creator_trx_id = 0;
+  }
+  dict_sys_mutex_exit();
+}
+
+/** Remove a ghost table after transactional DDL rollback.
+Drops the table and removes it from dict_sys cache.
+@param[in,out]  table   table created by transactional DDL to remove
+@param[in]      trx     transaction to use for the drop operation */
+void dict_table_remove_ghost(dict_table_t *table, trx_t *trx) {
+  ut_ad(table->m_creator_trx_id != 0);
+  rw_lock_x_lock(dict_operation_lock, UT_LOCATION_HERE);
+  dict_sys_mutex_enter();
+  table->acquire();
+  dict_table_close_and_drop(trx, table);
+  dict_sys_mutex_exit();
+  rw_lock_x_unlock(dict_operation_lock);
+}
+
 #include <vector>
 
 #include "btr0btr.h"

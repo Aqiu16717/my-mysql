@@ -125,6 +125,15 @@ void dict_table_close(dict_table_t *table, bool dict_locked, bool try_drop);
 void dict_table_close_and_drop(
     trx_t *trx,           /*!< in: data dictionary transaction */
     dict_table_t *table); /*!< in/out: table */
+/** Make a ghost table globally visible after transactional DDL commit.
+@param[in,out]  table   table to make visible (clears m_creator_trx_id) */
+void dict_table_make_visible(dict_table_t *table);
+
+/** Remove a ghost table after transactional DDL rollback.
+@param[in,out]  table   table to remove from dict_sys cache
+@param[in]      trx     transaction for the drop operation */
+void dict_table_remove_ghost(dict_table_t *table, trx_t *trx);
+
 /** Inits the data dictionary module. */
 void dict_init();
 

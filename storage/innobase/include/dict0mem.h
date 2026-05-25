@@ -2421,6 +2421,12 @@ detect this and will eventually quit sooner. */
   std::atomic<uint64_t> n_ref_count;
 
  public:
+  /** Transaction ID of the creating transaction, or 0 if the table is
+  fully committed and visible to all transactions. Used for transactional
+  DDL: tables with m_creator_trx_id != 0 are ghost tables visible only
+  to their creating transaction. Protected by dict_sys mutex on write,
+  and dict_operation_lock on read. */
+  uint64_t m_creator_trx_id{0};
 #ifndef UNIV_HOTBACKUP
   /** List of locks on the table. Protected by lock_sys shard latch. */
   table_lock_list_t locks;

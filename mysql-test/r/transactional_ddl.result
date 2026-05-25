@@ -1,0 +1,16 @@
+CALL mtr.add_suppression("Can't find error-message file");
+CALL mtr.add_suppression("Missing data directory for ICU regular expressions");
+# Test 1: CREATE TABLE in explicit transaction, commit
+BEGIN;
+CREATE TABLE t1 (a INT PRIMARY KEY) START TRANSACTION;
+COMMIT;
+SELECT COUNT(*) FROM t1;
+COUNT(*)
+#
+DROP TABLE t1;
+# Test 2: CREATE TABLE in explicit transaction, rollback
+BEGIN;
+CREATE TABLE t2 (a INT PRIMARY KEY) START TRANSACTION;
+ROLLBACK;
+SELECT * FROM t2;
+ERROR 42S02: Table 'test.t2' doesn't exist

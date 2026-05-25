@@ -1078,6 +1078,10 @@ struct trx_t {
                                transaction branch */
   trx_mod_tables_t mod_tables; /*!< List of tables that were modified
                                by this transaction */
+  /** List of ghost tables created by transactional DDL in this
+  transaction. On commit, these become visible (m_creator_trx_id
+  cleared). On rollback, these are removed from dict_sys. */
+  std::vector<dict_table_t *> ddl_ghost_tables;
 #endif                         /* !UNIV_HOTBACKUP */
                                /*------------------------------*/
   bool api_trx;                /*!< trx started by InnoDB API */
