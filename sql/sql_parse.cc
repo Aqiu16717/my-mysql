@@ -431,6 +431,9 @@ bool stmt_causes_implicit_commit(const THD *thd, uint mask) {
       return lex->autocommit;
     case SQLCOM_RESET:
       return lex->option_type != OPT_PERSIST;
+    case SQLCOM_CREATE_INDEX:
+    case SQLCOM_DROP_INDEX:
+      return !lex->m_transactional_ddl;
     case SQLCOM_STOP_GROUP_REPLICATION:
       return lex->was_replication_command_executed();
     default:
@@ -5038,6 +5041,7 @@ finish:
     */
     thd->mdl_context.release_transactional_locks();
   } else if (!thd->in_sub_stmt &&
+             !thd->lex->m_transactional_ddl &&
              ((thd->lex->sql_command != SQLCOM_CREATE_TABLE &&
                thd->lex->sql_command != SQLCOM_ALTER_TABLE &&
                thd->lex->sql_command != SQLCOM_DROP_TABLE) ||
