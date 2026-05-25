@@ -1673,7 +1673,8 @@ bool ha_innobase::commit_inplace_alter_table(TABLE *altered_table,
   /* For transactional DDL: register pre-alter state for rollback. */
   if (in_transactional_ddl && !res) {
     m_prebuilt->trx->ddl_altered_tables.push_back(
-        {m_prebuilt->table, pre_alter_n_cols, pre_alter_n_v_cols});
+        {m_prebuilt->table, pre_alter_n_cols, pre_alter_n_v_cols,
+         m_prebuilt->trx->ddl_savepoint_level});
   }
 
 #ifdef UNIV_DEBUG

@@ -1083,13 +1083,20 @@ struct trx_t {
   cleared). On rollback, these are removed from dict_sys. */
   std::vector<dict_table_t *> ddl_ghost_tables;
 
+  /** Current savepoint level for transactional DDL tracking.
+  Incremented by innobase_savepoint(), used to mark DDL operations
+  so that ROLLBACK TO SAVEPOINT only reverts DDL after the savepoint. */
+  uint32_t ddl_savepoint_level{0};
+
   /** Pre-alter state for transactional DDL rollback of ALTER TABLE.
   Stores column count before ALTER TABLE to enable rollback via
-  instant column drop. */
+  instant column drop, plus index names for rollback cleanup. */
   struct ddl_alter_state {
     dict_table_t *table;
     uint32_t n_cols_before;
     uint32_t n_v_cols_before;
+    /** Savepoint level when this DDL was executed. */
+    uint32_t savepoint_id;
   };
   std::vector<ddl_alter_state> ddl_altered_tables;
 #endif                         /* !UNIV_HOTBACKUP */

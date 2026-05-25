@@ -6310,6 +6310,32 @@ static int innobase_rollback_to_savepoint(
 
   longlong2str((ulint)savepoint, name, 36);
 
+  /* Revert transactional DDL operations at or above the current savepoint
+  level. This implements partial DDL rollback: only DDL after the savepoint
+  is undone, DDL before the savepoint is preserved. */
+  uint32_t target_level = trx->ddl_savepoint_level;
+
+  /* Revert ALTER TABLE column changes at/above target level. */
+  auto it = trx->ddl_altered_tables.begin();
+  while (it != trx->ddl_altered_tables.end()) {
+    if (it->savepoint_id >= target_level) {
+      dict_table_t *table = it->table;
+      for (uint32_t i = it->n_cols_before; i < table->n_def; i++) {
+        dict_col_t *col = table->get_col(i);
+        col->set_version_dropped(col->get_version_added());
+      }
+      table->n_v_cols = it->n_v_cols_before;
+      it = trx->ddl_altered_tables.erase(it);
+    } else {
+      ++it;
+    }
+  }
+
+  /* Decrement savepoint level after rollback. */
+  if (trx->ddl_savepoint_level > 0) {
+    trx->ddl_savepoint_level--;
+  }
+
   int64_t mysql_binlog_cache_pos;
 
   dberr_t error =
@@ -6406,6 +6432,11 @@ static int innobase_savepoint(
   char name[64];
 
   longlong2str((ulint)savepoint, name, 36);
+
+  /* Increment DDL savepoint level for transactional DDL tracking.
+  Subsequent DDL operations will be tagged with this level, enabling
+  partial rollback via ROLLBACK TO SAVEPOINT. */
+  trx->ddl_savepoint_level++;
 
   dberr_t error = trx_savepoint_for_mysql(trx, name, 0);
 
