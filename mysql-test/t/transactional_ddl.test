@@ -82,4 +82,77 @@ ROLLBACK;
 --error ER_NO_SUCH_TABLE
 SELECT * FROM t_mr1;
 
+--echo # === CREATE INDEX commit/rollback ===
+CREATE TABLE t_idx (a INT, b INT);
+INSERT INTO t_idx VALUES (1,10);
+BEGIN;
+CREATE INDEX idx_a ON t_idx(a) START TRANSACTION;
+COMMIT;
+SHOW INDEX FROM t_idx;
+DROP TABLE t_idx;
+
+CREATE TABLE t_idx_rb (a INT, b INT);
+BEGIN;
+CREATE INDEX idx_b ON t_idx_rb(b) START TRANSACTION;
+ROLLBACK;
+SHOW INDEX FROM t_idx_rb;
+DROP TABLE t_idx_rb;
+
+--echo # === DROP INDEX commit/rollback ===
+CREATE TABLE t_di (a INT, b INT);
+CREATE INDEX idx_x ON t_di(b);
+BEGIN;
+DROP INDEX idx_x ON t_di START TRANSACTION;
+COMMIT;
+SHOW INDEX FROM t_di;
+DROP TABLE t_di;
+
+CREATE TABLE t_di_rb (a INT, b INT);
+CREATE INDEX idx_y ON t_di_rb(b);
+BEGIN;
+DROP INDEX idx_y ON t_di_rb START TRANSACTION;
+ROLLBACK;
+SHOW INDEX FROM t_di_rb;
+DROP TABLE t_di_rb;
+
+--echo # === SAVEPOINT + DDL ===
+CREATE TABLE t_sp (a INT PRIMARY KEY);
+BEGIN;
+CREATE TABLE t_sp_new (a INT) START TRANSACTION;
+SAVEPOINT sp1;
+ALTER TABLE t_sp_new ADD COLUMN b INT START TRANSACTION;
+ROLLBACK TO sp1;
+SHOW COLUMNS FROM t_sp_new;
+COMMIT;
+DROP TABLE t_sp_new;
+DROP TABLE t_sp;
+
+--echo # === DDL + DML mixing ===
+BEGIN;
+CREATE TABLE t_mix (a INT PRIMARY KEY) START TRANSACTION;
+INSERT INTO t_mix VALUES (1);
+UPDATE t_mix SET a = 2;
+DELETE FROM t_mix WHERE a = 2;
+INSERT INTO t_mix VALUES (3);
+COMMIT;
+SELECT COUNT(*) FROM t_mix;
+DROP TABLE t_mix;
+
+--echo # === RENAME TABLE commit/rollback ===
+CREATE TABLE t_rename (a INT);
+BEGIN;
+RENAME TABLE t_rename TO t_renamed START TRANSACTION;
+COMMIT;
+SELECT COUNT(*) FROM t_renamed;
+DROP TABLE t_renamed;
+
+CREATE TABLE t_rn_rb (a INT);
+BEGIN;
+RENAME TABLE t_rn_rb TO t_rn_new START TRANSACTION;
+ROLLBACK;
+SELECT COUNT(*) FROM t_rn_rb;
+--error ER_NO_SUCH_TABLE
+SELECT * FROM t_rn_new;
+DROP TABLE t_rn_rb;
+
 --echo # === Complete ===
