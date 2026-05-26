@@ -6213,13 +6213,17 @@ static int innobase_rollback(handlerton *hton, /*!< in: InnoDB handlerton */
     if (!trx->ddl_altered_tables.empty()) {
       for (auto &state : trx->ddl_altered_tables) {
         dict_table_t *table = state.table;
-        /* Remove indexes created by this DDL from cache.
-        B-tree pages are left as orphan — reclaimed on table drop
-        (Phase 2.5 limitation, full cleanup in Phase 3). */
+        /* Drop indexes created by this DDL: free B-tree pages then
+        remove from cache. Uses mini-transaction for page cleanup. */
         ulint current_count = UT_LIST_GET_LEN(table->indexes);
         while (current_count > state.n_indexes_before && current_count > 0) {
           dict_index_t *idx = UT_LIST_GET_LAST(table->indexes);
           if (idx != nullptr) {
+            mtr_t mtr;
+            mtr.start();
+            btr_free_if_exists(page_id_t(table->space, idx->page),
+                               dict_table_page_size(table), idx->id, &mtr);
+            mtr.commit();
             dict_index_remove_from_cache(table, idx);
           }
           current_count = UT_LIST_GET_LEN(table->indexes);
@@ -6336,11 +6340,16 @@ static int innobase_rollback_to_savepoint(
   while (it != trx->ddl_altered_tables.end()) {
     if (it->savepoint_id >= target_level) {
       dict_table_t *table = it->table;
-      /* Remove indexes created at/above this savepoint. */
+      /* Drop indexes created at/above this savepoint with B-tree cleanup. */
       ulint current_count = UT_LIST_GET_LEN(table->indexes);
       while (current_count > it->n_indexes_before && current_count > 0) {
         dict_index_t *idx = UT_LIST_GET_LAST(table->indexes);
         if (idx != nullptr) {
+          mtr_t mtr;
+          mtr.start();
+          btr_free_if_exists(page_id_t(table->space, idx->page),
+                             dict_table_page_size(table), idx->id, &mtr);
+          mtr.commit();
           dict_index_remove_from_cache(table, idx);
         }
         current_count = UT_LIST_GET_LEN(table->indexes);
