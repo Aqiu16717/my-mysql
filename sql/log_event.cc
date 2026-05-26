@@ -3851,11 +3851,17 @@ Query_log_event::Query_log_event(THD *thd_arg, const char *query_arg,
   } else if ((thd->lex->sql_command == SQLCOM_CREATE_TABLE ||
               thd->lex->sql_command == SQLCOM_ALTER_TABLE) &&
              thd->lex->create_info->m_transactional_ddl) {
+    event_logging_type = Log_event::EVENT_NORMAL_LOGGING;
+    event_cache_type = Log_event::EVENT_TRANSACTIONAL_CACHE;
+
+    assert(ddl_xid == mysql::binlog::event::INVALID_XID);
+
+    if (thd->rli_slave) thd->rli_slave->ddl_not_atomic = true;
+  } else if (thd->lex->m_transactional_ddl) {
     /*
-      When executing CREATE/ALTER-TABLE ... START TRANSACTION using engine
-      that supports atomic DDL's, we cache the DDL event using normal logging.
-      This enables using single transaction for execution of both DDL
-      and DML when applying the binlog events at slave.
+      Transactional DDL for commands that don't have create_info
+      (DROP TABLE, TRUNCATE, CREATE/DROP INDEX, RENAME TABLE).
+      Cache the DDL event in the transaction cache and flush at COMMIT.
     */
     event_logging_type = Log_event::EVENT_NORMAL_LOGGING;
     event_cache_type = Log_event::EVENT_TRANSACTIONAL_CACHE;
