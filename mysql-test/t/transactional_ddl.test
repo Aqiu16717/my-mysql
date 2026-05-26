@@ -1,39 +1,85 @@
 #
-# Test Transactional DDL Phase 2
+# Test Transactional DDL — Full coverage
 #
 CALL mtr.add_suppression("Can't find error-message file");
 CALL mtr.add_suppression("Missing data directory for ICU regular expressions");
 
---echo # Test 1: CREATE TABLE commit
+--echo # === CREATE TABLE commit/rollback ===
 BEGIN;
-CREATE TABLE t1 (a INT PRIMARY KEY) START TRANSACTION;
+CREATE TABLE t_create (a INT PRIMARY KEY) START TRANSACTION;
+INSERT INTO t_create VALUES (1);
 COMMIT;
---replace_column 1 #
-SELECT COUNT(*) FROM t1;
-DROP TABLE t1;
+SELECT COUNT(*) FROM t_create;
+DROP TABLE t_create;
 
---echo # Test 2: CREATE TABLE rollback
 BEGIN;
-CREATE TABLE t2 (a INT PRIMARY KEY) START TRANSACTION;
+CREATE TABLE t_create_rb (a INT PRIMARY KEY) START TRANSACTION;
 ROLLBACK;
 --error ER_NO_SUCH_TABLE
-SELECT * FROM t2;
+SELECT * FROM t_create_rb;
 
---echo # Test 3: DROP TABLE commit
-CREATE TABLE t3 (a INT PRIMARY KEY);
-INSERT INTO t3 VALUES (1), (2);
+--echo # === ALTER TABLE commit/rollback ===
+CREATE TABLE t_alter (a INT PRIMARY KEY);
+INSERT INTO t_alter VALUES (1);
 BEGIN;
-DROP TABLE t3 START TRANSACTION;
+ALTER TABLE t_alter ADD COLUMN b VARCHAR(100) START TRANSACTION;
+COMMIT;
+SHOW COLUMNS FROM t_alter LIKE 'b';
+DROP TABLE t_alter;
+
+CREATE TABLE t_alter_rb (a INT PRIMARY KEY);
+BEGIN;
+ALTER TABLE t_alter_rb ADD COLUMN c INT START TRANSACTION;
+ROLLBACK;
+SHOW COLUMNS FROM t_alter_rb;
+DROP TABLE t_alter_rb;
+
+--echo # === DROP TABLE commit/rollback ===
+CREATE TABLE t_drop (a INT);
+BEGIN;
+DROP TABLE t_drop START TRANSACTION;
 COMMIT;
 --error ER_NO_SUCH_TABLE
-SELECT * FROM t3;
+SELECT * FROM t_drop;
 
---echo # Test 4: DROP TABLE rollback
-CREATE TABLE t4 (a INT PRIMARY KEY);
-INSERT INTO t4 VALUES (1), (2);
+CREATE TABLE t_drop_rb (a INT);
 BEGIN;
-DROP TABLE t4 START TRANSACTION;
+DROP TABLE t_drop_rb START TRANSACTION;
 ROLLBACK;
---replace_column 1 #
-SELECT COUNT(*) FROM t4;
-DROP TABLE t4;
+SELECT COUNT(*) FROM t_drop_rb;
+DROP TABLE t_drop_rb;
+
+--echo # === TRUNCATE commit/rollback ===
+CREATE TABLE t_trunc (a INT);
+INSERT INTO t_trunc VALUES (1),(2),(3);
+BEGIN;
+TRUNCATE TABLE t_trunc START TRANSACTION;
+COMMIT;
+SELECT COUNT(*) FROM t_trunc;
+DROP TABLE t_trunc;
+
+CREATE TABLE t_trunc_rb (a INT);
+INSERT INTO t_trunc_rb VALUES (1),(2),(3);
+BEGIN;
+TRUNCATE TABLE t_trunc_rb START TRANSACTION;
+ROLLBACK;
+SELECT COUNT(*) FROM t_trunc_rb;
+DROP TABLE t_trunc_rb;
+
+--echo # === Multi-DDL commit/rollback ===
+BEGIN;
+CREATE TABLE t_m1 (a INT) START TRANSACTION;
+CREATE TABLE t_m2 (a INT) START TRANSACTION;
+COMMIT;
+SELECT COUNT(*) FROM t_m1;
+SELECT COUNT(*) FROM t_m2;
+DROP TABLE t_m1, t_m2;
+
+BEGIN;
+CREATE TABLE t_mr1 (a INT) START TRANSACTION;
+CREATE TABLE t_mr2 (a INT) START TRANSACTION;
+ROLLBACK;
+--error ER_NO_SUCH_TABLE
+SELECT * FROM t_mr1;
+
+--echo # === Complete ===
